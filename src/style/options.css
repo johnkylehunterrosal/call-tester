@@ -1,0 +1,101 @@
+/* Options.css */
+
+.options-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  background: #f9f9f9;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  margin: 20px auto;
+  max-width: 900px;
+}
+
+.options-box {
+  background: #ffffff;
+  padding: 20px;
+  border: 2px solid #ddd;
+  border-radius: 10px;
+  width: 100%;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  justify-content: space-between;
+}
+
+.form-section {
+  flex: 1;
+  min-width: 300px;
+}
+
+.section-title {
+  font-size: 1.2em;
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.9em;
+  color: #666;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px;
+  font-size: 1em;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  margin-bottom: 10px;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 15px;
+  font-size: 1em;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.copy-btn {
+  background: #00bcd4;
+  color: #fff;
+}
+
+.copy-btn:hover {
+  background: #0097a7;
+}
+
+.call-btn {
+  background: #4caf50;
+  color: #fff;
+}
+
+.call-btn:hover {
+  background: #388e3c;
+}
+
+.hangup-btn {
+  background: #f44336;
+  color: #fff;
+}
+
+.hangup-btn:hover {
+  background: #d32f2f;
+}
+
+.icon {
+  font-size: 1.2em;
+}
