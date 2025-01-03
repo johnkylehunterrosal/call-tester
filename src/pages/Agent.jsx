@@ -70,7 +70,20 @@ const JoinCallPage = () => {
       }
       socket.off();
     };
-  }, [room]); // Run when room changes
+  }, [room]);
+
+  useEffect(() => {
+    socket.on("updateIncomingCalls", ({ answeredCallId, remainingCalls }) => {
+      setIncomingCalls((prev) =>
+        prev.filter((call) => call.callerId !== answeredCallId)
+      );
+      console.log("Updated incoming calls across ports:", remainingCalls);
+    });
+
+    return () => {
+      socket.off("updateIncomingCalls");
+    };
+  }, []); // Run when room changes
 
   const handleAnswerCall = async (callerId, signal) => {
     try {
