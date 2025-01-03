@@ -8,11 +8,14 @@ const JoinCallPage = () => {
   const [stream, setStream] = useState(null);
   const [incomingCalls, setIncomingCalls] = useState([]);
   const [activeCalls, setActiveCalls] = useState([]);
+  const [roomDetails, setRoomDetails] = useState(null); // Room details
+  const [room, setRoom] = useState("default-room"); // Default room
   const myVideo = useRef();
   const streamsRef = useRef({});
   const peerConnectionsRef = useRef({});
 
   useEffect(() => {
+    // Access media devices
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
       .then((stream) => {
@@ -22,6 +25,18 @@ const JoinCallPage = () => {
         }
       })
       .catch((err) => console.error("Error accessing media devices:", err));
+
+    // Join a room
+    socket.emit("joinRoom", room);
+
+    // Listen for room events
+    socket.on("roomJoined", (data) => {
+      console.log("Joined room:", data.room);
+    });
+
+    socket.on("roomUsers", (data) => {
+      console.log("Users in room:", data.users);
+    });
 
     socket.on("me", (id) => setMe(id));
     socket.on("callAllUsers", ({ from, signalData }) => {
@@ -33,77 +48,103 @@ const JoinCallPage = () => {
 
     socket.on("receiveIceCandidate", ({ candidate, from }) => {
       if (candidate && peerConnectionsRef.current[from]) {
-        peerConnectionsRef.current[from].addIceCandidate(
-          new RTCIceCandidate(candidate)
-        );
+        peerConnectionsRef.current[from]
+          .addIceCandidate(new RTCIceCandidate(candidate))
+          .catch((err) =>
+            console.error(`Error adding ICE candidate from ${from}:`, err)
+          );
       }
     });
 
+    // Listen for room details after answering a call
+    socket.on("roomDetails", ({ roomName, users }) => {
+      console.log(`Room ID: ${roomName}`);
+      console.log(`Users in room:`, users);
+      setRoomDetails({ roomName, users });
+    });
+
     return () => {
+      // Cleanup on component unmount
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
       socket.off();
     };
-  }, []);
+  }, [room]); // Run when room changes
 
   const handleAnswerCall = async (callerId, signal) => {
-    const peerConnection = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-      ],
-    });
-
-    peerConnectionsRef.current[callerId] = peerConnection;
-    if (stream) {
-      stream.getTracks().forEach((track) => {
-        peerConnection.addTrack(track, stream);
+    try {
+      const peerConnection = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+        ],
       });
-    }
 
-    peerConnection.ontrack = (event) => {
-      const assignStreamToVideo = () => {
-        if (streamsRef.current[callerId]) {
-          streamsRef.current[callerId].srcObject = event.streams[0];
-        } else {
-          setTimeout(assignStreamToVideo, 100);
-        }
-      };
-      assignStreamToVideo();
-    };
+      peerConnectionsRef.current[callerId] = peerConnection;
 
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit("sendIceCandidate", {
-          candidate: event.candidate,
-          to: callerId,
+      // Add local tracks to peer connection
+      if (stream) {
+        stream.getTracks().forEach((track) => {
+          peerConnection.addTrack(track, stream);
         });
       }
-    };
 
-    peerConnection.onconnectionstatechange = () => {
-      console.log(
-        `Connection state for caller ${callerId}:`,
-        peerConnection.connectionState
-      );
-    };
+      // Handle remote track
+      peerConnection.ontrack = (event) => {
+        const assignStreamToVideo = () => {
+          if (streamsRef.current[callerId]) {
+            streamsRef.current[callerId].srcObject = event.streams[0];
+          } else {
+            setTimeout(assignStreamToVideo, 100);
+          }
+        };
+        assignStreamToVideo();
+      };
 
-    if (signal && signal.type && signal.sdp) {
-      await peerConnection.setRemoteDescription(
-        new RTCSessionDescription(signal)
+      // Handle ICE candidates
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit("sendIceCandidate", {
+            candidate: event.candidate,
+            to: callerId,
+          });
+        }
+      };
+
+      // Connection state logging
+      peerConnection.onconnectionstatechange = () => {
+        console.log(
+          `Connection state for caller ${callerId}:`,
+          peerConnection.connectionState
+        );
+      };
+
+      // Set remote description
+      if (signal?.type && signal?.sdp) {
+        await peerConnection.setRemoteDescription(
+          new RTCSessionDescription(signal)
+        );
+      } else {
+        console.error("Invalid signal received:", signal);
+        return;
+      }
+
+      // Create and set local description (answer)
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+
+      // Send the answer to the caller
+      socket.emit("answerCall", { signal: answer, to: callerId });
+
+      // Update active calls
+      setActiveCalls((prev) => [...prev, callerId]);
+      setIncomingCalls((prev) =>
+        prev.filter((call) => call.callerId !== callerId)
       );
+    } catch (error) {
+      console.error("Error answering call:", error);
     }
-
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-
-    socket.emit("answerCall", { signal: answer, to: callerId });
-
-    setActiveCalls((prev) => [...prev, callerId]);
-    setIncomingCalls((prev) =>
-      prev.filter((call) => call.callerId !== callerId)
-    );
   };
 
   return (
@@ -124,6 +165,17 @@ const JoinCallPage = () => {
           ))
         ) : (
           <p style={styles.noCalls}>No incoming calls</p>
+        )}
+        {roomDetails && (
+          <div style={styles.roomDetails}>
+            <h3>Room Details</h3>
+            <p>
+              <strong>Room ID:</strong> {roomDetails.roomName}
+            </p>
+            <p>
+              <strong>Users:</strong> {roomDetails.users.join(", ")}
+            </p>
+          </div>
         )}
       </div>
       <div style={styles.mainContent}>
