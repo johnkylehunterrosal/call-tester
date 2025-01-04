@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 
-// Function to dynamically connect to the server with fallback
 const connectToSocketServer = () => {
   const primaryServer = "http://localhost:5000";
   const fallbackServer = "http://192.168.68.53:5000";
@@ -43,7 +42,6 @@ const CallerPage = () => {
   };
 
   useEffect(() => {
-    // Get user media
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
       .then((stream) => {
@@ -54,7 +52,6 @@ const CallerPage = () => {
       })
       .catch((err) => console.error("Error accessing media devices:", err));
 
-    // Set up socket listeners
     if (socket) {
       socket.on("me", (id) => setMe(id));
 
@@ -76,7 +73,6 @@ const CallerPage = () => {
       socket.on("endCall", () => endCall());
     }
 
-    // Cleanup on component unmount
     return () => {
       if (peerConnection.current) {
         peerConnection.current.close();
@@ -92,14 +88,12 @@ const CallerPage = () => {
 
     peerConnection.current = new RTCPeerConnection(iceServers);
 
-    // Handle incoming tracks from the remote peer
     peerConnection.current.ontrack = (event) => {
       if (userVideo.current) {
         userVideo.current.srcObject = event.streams[0];
       }
     };
 
-    // Handle ICE candidates
     peerConnection.current.onicecandidate = (event) => {
       if (event.candidate) {
         socket.emit("sendIceCandidate", {
@@ -109,12 +103,10 @@ const CallerPage = () => {
       }
     };
 
-    // Add local stream tracks to the peer connection
     stream.getTracks().forEach((track) => {
       peerConnection.current.addTrack(track, stream);
     });
 
-    // Create and send the offer
     const offer = await peerConnection.current.createOffer();
     await peerConnection.current.setLocalDescription(offer);
 
@@ -135,26 +127,34 @@ const CallerPage = () => {
 
   return (
     <div style={styles.container}>
+      <h1 style={styles.title}>Live Video Call</h1>
       <div style={styles.videoContainer}>
-        <div style={styles.videoWrapper}>
+        <div style={styles.videoCard}>
           <video ref={myVideo} autoPlay muted style={styles.video} />
-          <div style={styles.nameTag}>{name}</div>
+          <h3 style={styles.videoCardName}>{name}</h3>
         </div>
         {callAccepted && (
-          <div style={styles.videoWrapper}>
+          <div style={styles.videoCard}>
             <video ref={userVideo} autoPlay style={styles.video} />
-            <div style={styles.nameTag}>Agent</div>
+            <h3 style={styles.videoCardName}>Agent</h3>
           </div>
         )}
       </div>
       <div style={styles.controls}>
         {!callAccepted && !callEnded && (
-          <button onClick={startCall} style={styles.button} disabled={!stream}>
+          <button
+            onClick={startCall}
+            style={{ ...styles.button, ...styles.startButton }}
+            disabled={!stream}
+          >
             Start Call
           </button>
         )}
         {callAccepted && (
-          <button onClick={endCall} style={styles.endButton}>
+          <button
+            onClick={endCall}
+            style={{ ...styles.button, ...styles.endButton }}
+          >
             End Call
           </button>
         )}
@@ -168,38 +168,49 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    justifyContent: "center",
     padding: "20px",
-    backgroundColor: "#202124",
+    backgroundColor: "gray",
     minHeight: "100vh",
     color: "#fff",
   },
+  title: {
+    fontSize: "2.5rem",
+    fontWeight: "bold",
+    marginBottom: "30px",
+    textShadow: "0 4px 8px rgba(0, 0, 0, 0.4)",
+  },
   videoContainer: {
     display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
     gap: "20px",
-    marginBottom: "20px",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    marginBottom: "30px",
   },
-  videoWrapper: {
+  videoCard: {
     position: "relative",
+    width: "350px",
+    height: "250px",
+    borderRadius: "15px",
+    background: "rgba(255, 255, 255, 0.1)",
+    boxShadow: "0 6px 15px rgba(0, 0, 0, 0.3)",
+    overflow: "hidden",
+    backdropFilter: "blur(10px)",
   },
   video: {
-    width: "400px",
-    height: "300px",
-    borderRadius: "10px",
-    backgroundColor: "#000",
-    boxShadow: "0 4px 10px rgba(0, 0, 0, 0.5)",
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
   },
-  nameTag: {
+  videoCardName: {
     position: "absolute",
     bottom: "10px",
     left: "10px",
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
     color: "#fff",
     padding: "5px 10px",
     borderRadius: "5px",
     fontSize: "14px",
+    textShadow: "0 2px 4px rgba(0, 0, 0, 0.4)",
   },
   controls: {
     display: "flex",
@@ -207,24 +218,23 @@ const styles = {
     gap: "20px",
   },
   button: {
-    padding: "10px 20px",
+    padding: "12px 25px",
     fontSize: "16px",
-    color: "#fff",
-    backgroundColor: "#0d6efd",
+    fontWeight: "bold",
     border: "none",
-    borderRadius: "5px",
+    borderRadius: "8px",
     cursor: "pointer",
-    transition: "background-color 0.3s",
+    transition: "all 0.3s ease",
+  },
+  startButton: {
+    backgroundColor: "#4ade80",
+    color: "#fff",
+    boxShadow: "0 4px 8px rgba(0, 0, 0, 0.3)",
   },
   endButton: {
-    padding: "10px 20px",
-    fontSize: "16px",
+    backgroundColor: "#ef4444",
     color: "#fff",
-    backgroundColor: "#dc3545",
-    border: "none",
-    borderRadius: "5px",
-    cursor: "pointer",
-    transition: "background-color 0.3s",
+    boxShadow: "0 4px 8px rgba(0, 0, 0, 0.3)",
   },
 };
 
