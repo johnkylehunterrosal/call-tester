@@ -1,8 +1,8 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import MainLayout from "./layout/MainLayout";
 import Login from "./pages/Login";
-import CallerPage from "./pages/Caller";
-import AgentPage from "./pages/Agent";
+import CallerPage from "./pages/Caller.jsx";
+import AgentPage from "./pages/Agent.jsx";
 // import { ContextProvider } from "./store/context/Context.jsx";
 
 const App = () => {

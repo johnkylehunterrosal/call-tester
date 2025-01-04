@@ -7,4 +7,9 @@ export default defineConfig({
   define: {
     global: "window",
   },
+  server: {
+    host: true, // This allows the server to be accessible from the network
+    historyApiFallback: true,
+    // port: 3000, // Specify the port you want to use (optional)
+  },
 });

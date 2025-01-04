@@ -1,7 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 
-const socket = io.connect("http://localhost:5000");
+// Function to dynamically connect to the server with fallback
+const connectToSocketServer = () => {
+  const primaryServer = "http://localhost:5000";
+  const fallbackServer = "http://192.168.68.53:5000";
+
+  try {
+    const socket = io(primaryServer, { timeout: 5000 });
+    socket.on("connect_error", () => {
+      console.warn(
+        `Failed to connect to ${primaryServer}. Trying fallback server.`
+      );
+      const fallbackSocket = io(fallbackServer, { timeout: 5000 });
+      return fallbackSocket;
+    });
+    return socket;
+  } catch (error) {
+    console.error("Error connecting to servers:", error);
+    return null;
+  }
+};
+
+const socket = connectToSocketServer();
 
 const CallerPage = () => {
   const [me, setMe] = useState("");
@@ -22,6 +43,7 @@ const CallerPage = () => {
   };
 
   useEffect(() => {
+    // Get user media
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
       .then((stream) => {
@@ -32,42 +54,52 @@ const CallerPage = () => {
       })
       .catch((err) => console.error("Error accessing media devices:", err));
 
-    socket.on("me", (id) => setMe(id));
+    // Set up socket listeners
+    if (socket) {
+      socket.on("me", (id) => setMe(id));
 
-    socket.on("callAccepted", async (signal) => {
-      await peerConnection.current.setRemoteDescription(
-        new RTCSessionDescription(signal)
-      );
-      setCallAccepted(true);
-    });
+      socket.on("callAccepted", async (signal) => {
+        await peerConnection.current.setRemoteDescription(
+          new RTCSessionDescription(signal)
+        );
+        setCallAccepted(true);
+      });
 
-    socket.on("receiveIceCandidate", ({ candidate }) => {
-      if (candidate) {
-        peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
-      }
-    });
+      socket.on("receiveIceCandidate", ({ candidate }) => {
+        if (candidate) {
+          peerConnection.current.addIceCandidate(
+            new RTCIceCandidate(candidate)
+          );
+        }
+      });
 
-    socket.on("endCall", () => endCall());
+      socket.on("endCall", () => endCall());
+    }
 
+    // Cleanup on component unmount
     return () => {
       if (peerConnection.current) {
         peerConnection.current.close();
       }
-      socket.off();
+      if (socket) {
+        socket.off();
+      }
     };
-  }, []);
+  }, [socket]);
 
   const startCall = async () => {
     if (!stream) return;
 
     peerConnection.current = new RTCPeerConnection(iceServers);
 
+    // Handle incoming tracks from the remote peer
     peerConnection.current.ontrack = (event) => {
       if (userVideo.current) {
         userVideo.current.srcObject = event.streams[0];
       }
     };
 
+    // Handle ICE candidates
     peerConnection.current.onicecandidate = (event) => {
       if (event.candidate) {
         socket.emit("sendIceCandidate", {
@@ -77,10 +109,12 @@ const CallerPage = () => {
       }
     };
 
+    // Add local stream tracks to the peer connection
     stream.getTracks().forEach((track) => {
       peerConnection.current.addTrack(track, stream);
     });
 
+    // Create and send the offer
     const offer = await peerConnection.current.createOffer();
     await peerConnection.current.setLocalDescription(offer);
 

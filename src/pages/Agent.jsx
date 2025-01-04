@@ -1,7 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 
-const socket = io.connect("http://localhost:5000");
+// Function to dynamically connect to the server with fallback
+const connectToSocketServer = () => {
+  const primaryServer = "http://localhost:5000";
+  const fallbackServer = "http://192.168.68.53:5000";
+
+  try {
+    const socket = io(primaryServer, { timeout: 5000 });
+    socket.on("connect_error", () => {
+      console.warn(
+        `Failed to connect to ${primaryServer}. Trying fallback server.`
+      );
+      const fallbackSocket = io(fallbackServer, { timeout: 5000 });
+      return fallbackSocket;
+    });
+    return socket;
+  } catch (error) {
+    console.error("Error connecting to servers:", error);
+    return null;
+  }
+};
+
+const socket = connectToSocketServer();
 
 const JoinCallPage = () => {
   const [me, setMe] = useState("");
@@ -15,6 +36,11 @@ const JoinCallPage = () => {
   const peerConnectionsRef = useRef({});
 
   useEffect(() => {
+    if (!socket) {
+      console.error("Socket is not initialized.");
+      return;
+    }
+
     // Access media devices
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
