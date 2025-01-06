@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useContext } from "react";
 import io from "socket.io-client";
-import DriverContext from "../store/context/Context"; // Import the driver context
+import DriverContext from "../store/context/Context";
+import { useNavigate } from "react-router-dom"; // Import the driver context
 
 // Function to dynamically connect to the server with fallback
 const connectToSocketServer = () => {
@@ -24,7 +25,6 @@ const connectToSocketServer = () => {
 };
 
 const socket = connectToSocketServer();
-
 const JoinCallPage = () => {
   const [me, setMe] = useState("");
   const [stream, setStream] = useState(null);
@@ -35,9 +35,9 @@ const JoinCallPage = () => {
   const myVideo = useRef();
   const streamsRef = useRef({});
   const peerConnectionsRef = useRef({});
-
   const { driver } = useContext(DriverContext); // Access the driver context
   const availableDrivers = driver.filter((d) => d.status === "Available"); // Filter available drivers
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!socket) {
@@ -102,20 +102,9 @@ const JoinCallPage = () => {
     };
   }, [room]);
 
-  const handleDriverJoin = (driver) => {
-    if (!roomDetails?.roomName) {
-      console.error("Room ID is not defined.");
-      return;
-    }
-
-    // Emit a request to the server to notify the driver
-    socket.emit("requestDriverJoin", {
-      driverId: driver.employeeID,
-      room: roomDetails.roomName,
-    });
-    console.log(
-      `Requested ${driver.driverName} to join room: ${roomDetails.roomName}`
-    );
+  const handleDriverJoin = () => {
+    console.log(roomDetails, "testing");
+    navigate(`/driver/${driver.employeeID}`, { state: { roomDetails } });
   };
 
   const handleAnswerCall = async (callerId, signal) => {

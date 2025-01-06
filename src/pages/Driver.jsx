@@ -1,59 +1,145 @@
-import { useContext, useEffect } from "react";
+import { useEffect, useRef, useState, useContext } from "react";
 import { useParams } from "react-router-dom";
-import DriverContext from "../store/context/Context";
 import { io } from "socket.io-client";
+import DriverContext from "../store/context/Context";
 
 // Establish socket connection
 const socket = io("http://localhost:5000");
 
 const DriverPage = () => {
+  const { driver } = useContext(DriverContext);
+  const [stream, setStream] = useState(null);
+  const [remoteStreams, setRemoteStreams] = useState([]);
+  const [roomId, setRoomId] = useState(""); // State for the room ID
   const { employeeID } = useParams();
-  const { driver, setDriver } = useContext(DriverContext);
-
-  // Find the driver by employeeID
+  const myVideo = useRef();
+  const remoteVideos = useRef({});
+  const peerConnections = useRef({});
   const currentDriver = driver.find((d) => d.employeeID === employeeID);
 
-  // Listen for room notifications and handle the driver's actions
   useEffect(() => {
-    // Listen for notifications to join a room
-    socket.on("connect", () => {
-      console.log("Driver connected with socket ID:", socket.id);
-    });
-    socket.on("joinRoomNotification", ({ room }) => {
-      alert(`You have been requested to join the room: ${room}`);
-      console.log(`Received joinRoomNotification for room: ${room}`);
-      // The driver will need to manually trigger the joinRoom action if desired.
+    // Get local media stream
+    console.log(socket.on("me"));
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        setStream(stream);
+        if (myVideo.current) {
+          myVideo.current.srcObject = stream;
+        }
+      })
+      .catch((err) => console.error("Error accessing media devices:", err));
+
+    // Handle new participant joining the room
+    socket.on("newParticipant", ({ participantId }) => {
+      console.log(`New participant joined: ${participantId}`);
+      createPeerConnection(participantId);
     });
 
+    // Handle incoming offers
+    socket.on("offer", async ({ from, offer }) => {
+      const pc = createPeerConnection(from);
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("answer", { answer, to: from });
+    });
+
+    // Handle incoming answers
+    socket.on("answer", async ({ from, answer }) => {
+      const pc = peerConnections.current[from];
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      }
+    });
+
+    // Handle incoming ICE candidates
+    socket.on("candidate", ({ candidate, from }) => {
+      const pc = peerConnections.current[from];
+      if (pc) {
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+          console.error(`Error adding ICE candidate from ${from}:`, err);
+        });
+      }
+    });
+
+    // Cleanup on component unmount
     return () => {
-      socket.off("joinRoomNotification");
+      socket.off("newParticipant");
+      socket.off("offer");
+      socket.off("answer");
+      socket.off("candidate");
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      Object.values(peerConnections.current).forEach((pc) => pc.close());
     };
-  }, []);
+  }, [roomId]);
 
-  // Function to toggle driver status
-  const toggleStatus = () => {
-    setDriver((prevDrivers) =>
-      prevDrivers.map((d) =>
-        d.employeeID === employeeID
-          ? { ...d, status: d.status === "Available" ? "Busy" : "Available" }
-          : d
-      )
-    );
+  const createPeerConnection = (participantId) => {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
+    });
 
-    // Optionally notify server about status change (if needed for real-time updates)
-    socket.emit("updateDriverStatus", {
-      employeeID,
-      status: currentDriver?.status === "Available" ? "Busy" : "Available",
+    peerConnections.current[participantId] = pc;
+
+    // Add local stream tracks to peer connection
+    if (stream) {
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
+      });
+    }
+
+    // Handle incoming remote streams
+    pc.ontrack = (event) => {
+      const remoteStream = event.streams[0];
+      setRemoteStreams((prev) => {
+        const existingStream = prev.find(
+          (s) => s.participantId === participantId
+        );
+        if (existingStream) return prev; // Avoid duplicates
+        return [...prev, { stream: remoteStream, participantId }];
+      });
+    };
+
+    // Handle ICE candidates
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("candidate", {
+          candidate: event.candidate,
+          to: participantId,
+        });
+      }
+    };
+
+    return pc;
+  };
+
+  const joinRoom = () => {
+    if (!roomId.trim()) {
+      console.error("Room ID is required");
+      return;
+    }
+    socket.emit("joinRoom", { room: roomId, driver: currentDriver });
+
+    socket.on("roomUsers", ({ users }) => {
+      users.forEach((userId) => {
+        if (userId !== socket.id) {
+          const pc = createPeerConnection(userId);
+          sendOffer(pc, userId);
+        }
+      });
     });
   };
 
-  if (!currentDriver) {
-    return (
-      <div style={styles.notFound}>
-        <p>Driver not found</p>
-      </div>
-    );
-  }
+  const sendOffer = async (pc, userId) => {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("offer", { offer, to: userId });
+  };
 
   return (
     <div style={styles.container}>
@@ -86,11 +172,42 @@ const DriverPage = () => {
             </span>
           </p>
         </div>
-        <button onClick={toggleStatus} style={styles.statusButton}>
-          {currentDriver.status === "Available"
-            ? "Set as Busy"
-            : "Set as Available"}
-        </button>
+        <div style={styles.roomSection}>
+          <input
+            type="text"
+            placeholder="Enter Room ID"
+            value={roomId}
+            onChange={(e) => setRoomId(e.target.value)}
+            style={styles.roomInput}
+          />
+          <button onClick={joinRoom} style={styles.joinButton}>
+            Join Room
+          </button>
+        </div>
+        <div style={styles.videoSection}>
+          {/* Local Video */}
+          <div style={styles.videoCard}>
+            <video ref={myVideo} autoPlay muted style={styles.video} />
+            <h3 style={styles.videoLabel}>Your Video</h3>
+          </div>
+
+          {/* Remote Videos */}
+          {remoteStreams.map(({ stream, participantId }) => (
+            <div key={participantId} style={styles.videoCard}>
+              <video
+                ref={(el) => {
+                  if (el) {
+                    el.srcObject = stream;
+                    remoteVideos.current[participantId] = el;
+                  }
+                }}
+                autoPlay
+                style={styles.video}
+              />
+              <h3 style={styles.videoLabel}>Participant: {participantId}</h3>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -105,14 +222,6 @@ const styles = {
     alignItems: "center",
     fontFamily: "'Roboto', sans-serif",
     color: "#333",
-  },
-  notFound: {
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    height: "100vh",
-    fontSize: "18px",
-    color: "#a0aec0",
   },
   profileCard: {
     backgroundColor: "#ffffff",
@@ -155,20 +264,6 @@ const styles = {
     borderTop: "1px solid #e2e8f0",
     paddingTop: "15px",
   },
-  statusButton: {
-    backgroundColor: "#3182ce",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "8px",
-    padding: "12px 20px",
-    fontSize: "16px",
-    fontWeight: "500",
-    cursor: "pointer",
-    transition: "all 0.3s ease",
-  },
-  statusButtonHover: {
-    backgroundColor: "#2b6cb0",
-  },
   statusAvailable: {
     color: "#48bb78",
     fontWeight: "bold",
@@ -176,6 +271,63 @@ const styles = {
   statusBusy: {
     color: "#e53e3e",
     fontWeight: "bold",
+  },
+  videoSection: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "20px",
+    justifyContent: "center",
+    marginTop: "20px",
+  },
+  videoCard: {
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderRadius: "10px",
+    boxShadow: "0 6px 10px rgba(0, 0, 0, 0.15)",
+    height: "300px",
+    width: "300px",
+    overflow: "hidden",
+  },
+  video: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+  },
+  videoLabel: {
+    position: "absolute",
+    bottom: "10px",
+    left: "10px",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    color: "#ffffff",
+    padding: "5px 10px",
+    borderRadius: "5px",
+    fontSize: "14px",
+    fontWeight: "500",
+  },
+  roomSection: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: "20px",
+  },
+  roomInput: {
+    padding: "10px",
+    fontSize: "16px",
+    border: "1px solid #ccc",
+    borderRadius: "5px",
+    marginRight: "10px",
+  },
+  joinButton: {
+    padding: "10px 20px",
+    fontSize: "16px",
+    color: "#fff",
+    backgroundColor: "#3182ce",
+    border: "none",
+    borderRadius: "5px",
+    cursor: "pointer",
   },
 };
 

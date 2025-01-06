@@ -9,18 +9,21 @@ export const DriverProvider = ({ children }) => {
       driverName: "kupal",
       status: "Available",
       vehicle: "Ambulance",
+      roomName: null,
     },
     {
       employeeID: "456",
       driverName: "Bobo",
       status: "Available",
       vehicle: "Fire Truck",
+      roomName: null,
     },
     {
       employeeID: "789",
       driverName: "Bossing",
       status: "Available",
       vehicle: "Police Cars",
+      roomName: null,
     },
   ]);
 
