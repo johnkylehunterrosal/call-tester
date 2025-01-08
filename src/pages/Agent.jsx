@@ -4,7 +4,7 @@ import io from "socket.io-client";
 // Function to dynamically connect to the server with fallback
 const connectToSocketServer = () => {
   const primaryServer = "http://localhost:5000";
-  const fallbackServer = "http://192.168.68.53:5000";
+  const fallbackServer = "http://192.168.68.62:5000";
 
   try {
     const socket = io(primaryServer, { timeout: 5000 });
