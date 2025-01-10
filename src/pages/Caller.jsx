@@ -82,6 +82,56 @@ const CallerPage = () => {
       }
     };
   }, [socket]);
+  useEffect(() => {
+    // Signal for when a new participant joins
+    socket.on("newParticipant", ({ id }) => {
+      console.log(`New participant joined: ${id}`);
+      if (!peerConnections.current[id]) {
+        const pc = createPeerConnection(id);
+        sendOffer(pc, id); // Send an offer to the new participant
+      }
+    });
+
+    // Handle received offers
+    socket.on("offer", async ({ from, offer }) => {
+      console.log(`Received offer from ${from}`);
+      const pc = createPeerConnection(from);
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("answer", { answer, to: from });
+      console.log(`Sent answer to ${from}`);
+    });
+
+    // Handle received answers
+    socket.on("answer", async ({ from, answer }) => {
+      console.log(`Received answer from ${from}`);
+      const pc = peerConnections.current[from];
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log(`Set remote description for ${from}`);
+      }
+    });
+
+    // Handle received ICE candidates
+    socket.on("candidate", ({ from, candidate }) => {
+      console.log(`Received ICE candidate from ${from}`);
+      const pc = peerConnections.current[from];
+      if (pc) {
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+          console.error(`Error adding ICE candidate from ${from}:`, err);
+        });
+      }
+    });
+
+    // Cleanup
+    return () => {
+      socket.off("newParticipant");
+      socket.off("offer");
+      socket.off("answer");
+      socket.off("candidate");
+    };
+  }, []);
 
   const startCall = async () => {
     if (!stream) return;

@@ -19,42 +19,47 @@ const DriverPage = () => {
 
   useEffect(() => {
     // Get local media stream
-    console.log(socket.on("me"));
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
-      .then((stream) => {
-        setStream(stream);
+      .then((localStream) => {
+        console.log("Local video stream obtained");
+        setStream(localStream);
         if (myVideo.current) {
-          myVideo.current.srcObject = stream;
+          myVideo.current.srcObject = localStream;
         }
       })
       .catch((err) => console.error("Error accessing media devices:", err));
 
-    // Handle new participant joining the room
-    socket.on("newParticipant", ({ participantId }) => {
-      console.log(`New participant joined: ${participantId}`);
-      createPeerConnection(participantId);
+    // Handle server events
+    socket.on("newParticipant", ({ id, role }) => {
+      console.log(`New participant joined: ${id} (${role})`);
+      if (!peerConnections.current[id]) {
+        const pc = createPeerConnection(id);
+        sendOffer(pc, id); // Send an offer to the new participant
+      }
     });
 
-    // Handle incoming offers
     socket.on("offer", async ({ from, offer }) => {
+      console.log(`Received offer from ${from}`);
       const pc = createPeerConnection(from);
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socket.emit("answer", { answer, to: from });
+      console.log(`Sent answer to ${from}`);
     });
 
-    // Handle incoming answers
     socket.on("answer", async ({ from, answer }) => {
+      console.log(`Received answer from ${from}`);
       const pc = peerConnections.current[from];
       if (pc) {
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log(`Set remote description for ${from}`);
       }
     });
 
-    // Handle incoming ICE candidates
     socket.on("candidate", ({ candidate, from }) => {
+      console.log(`Received ICE candidate from ${from}`);
       const pc = peerConnections.current[from];
       if (pc) {
         pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
@@ -63,12 +68,18 @@ const DriverPage = () => {
       }
     });
 
+    socket.on("callEnded", ({ id }) => {
+      console.log(`Participant ${id} left the room`);
+      removeRemoteStream(id);
+    });
+
     // Cleanup on component unmount
     return () => {
       socket.off("newParticipant");
       socket.off("offer");
       socket.off("answer");
       socket.off("candidate");
+      socket.off("callEnded");
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
@@ -77,6 +88,7 @@ const DriverPage = () => {
   }, [roomId]);
 
   const createPeerConnection = (participantId) => {
+    console.log(`Creating PeerConnection for ${participantId}`);
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -90,12 +102,14 @@ const DriverPage = () => {
     if (stream) {
       stream.getTracks().forEach((track) => {
         pc.addTrack(track, stream);
+        console.log(`Added local track to PeerConnection for ${participantId}`);
       });
     }
 
     // Handle incoming remote streams
     pc.ontrack = (event) => {
       const remoteStream = event.streams[0];
+      console.log(`Received remote stream from ${participantId}`);
       setRemoteStreams((prev) => {
         const existingStream = prev.find(
           (s) => s.participantId === participantId
@@ -108,6 +122,7 @@ const DriverPage = () => {
     // Handle ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log(`Sending ICE candidate to ${participantId}`);
         socket.emit("candidate", {
           candidate: event.candidate,
           to: participantId,
@@ -123,55 +138,39 @@ const DriverPage = () => {
       console.error("Room ID is required");
       return;
     }
-    socket.emit("joinRoom", { room: roomId, driver: currentDriver });
+    console.log(`Joining room: ${roomId}`);
+    socket.emit("joinRoom", { room: roomId, role: "driver" });
 
-    socket.on("roomUsers", ({ users }) => {
-      users.forEach((userId) => {
-        if (userId !== socket.id) {
-          const pc = createPeerConnection(userId);
-          sendOffer(pc, userId);
+    socket.on("roomParticipants", ({ participants }) => {
+      console.log("Current room participants:", participants);
+      participants.forEach(({ id }) => {
+        if (id !== socket.id && !peerConnections.current[id]) {
+          const pc = createPeerConnection(id);
+          sendOffer(pc, id);
         }
       });
     });
   };
 
   const sendOffer = async (pc, userId) => {
+    console.log(`Sending offer to ${userId}`);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit("offer", { offer, to: userId });
   };
 
+  const removeRemoteStream = (participantId) => {
+    console.log(`Removing remote stream for ${participantId}`);
+    setRemoteStreams((prev) =>
+      prev.filter((stream) => stream.participantId !== participantId)
+    );
+    delete peerConnections.current[participantId];
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.profileCard}>
-        <div style={styles.profileHeader}>
-          <img
-            src={`https://i.pravatar.cc/150?u=${currentDriver.employeeID}`}
-            alt={`${currentDriver.driverName}'s avatar`}
-            style={styles.avatar}
-          />
-          <div>
-            <h2 style={styles.driverName}>{currentDriver.driverName}</h2>
-            <p style={styles.driverRole}>Professional Driver</p>
-          </div>
-        </div>
-        <div style={styles.details}>
-          <p>
-            <strong>Employee ID:</strong> {currentDriver.employeeID}
-          </p>
-          <p>
-            <strong>Status:</strong>{" "}
-            <span
-              style={
-                currentDriver.status === "Available"
-                  ? styles.statusAvailable
-                  : styles.statusBusy
-              }
-            >
-              {currentDriver.status}
-            </span>
-          </p>
-        </div>
+        {/* UI Content */}
         <div style={styles.roomSection}>
           <input
             type="text"
@@ -188,9 +187,8 @@ const DriverPage = () => {
           {/* Local Video */}
           <div style={styles.videoCard}>
             <video ref={myVideo} autoPlay muted style={styles.video} />
-            <h3 style={styles.videoLabel}>Your Video</h3>
+            <h3 style={styles.videoLabel}>My Video</h3>
           </div>
-
           {/* Remote Videos */}
           {remoteStreams.map(({ stream, participantId }) => (
             <div key={participantId} style={styles.videoCard}>
@@ -218,8 +216,6 @@ const styles = {
     backgroundColor: "#f5f7fa",
     height: "100vh",
     display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
     fontFamily: "'Roboto', sans-serif",
     color: "#333",
   },
@@ -227,10 +223,11 @@ const styles = {
     backgroundColor: "#ffffff",
     padding: "30px",
     borderRadius: "12px",
-    width: "400px",
     boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)",
     textAlign: "center",
     position: "relative",
+    margin: "20px",
+    width: "100%",
   },
   profileHeader: {
     display: "flex",
@@ -276,7 +273,6 @@ const styles = {
     display: "flex",
     flexWrap: "wrap",
     gap: "20px",
-    justifyContent: "center",
     marginTop: "20px",
   },
   videoCard: {
@@ -309,7 +305,6 @@ const styles = {
   },
   roomSection: {
     display: "flex",
-    justifyContent: "center",
     alignItems: "center",
     marginBottom: "20px",
   },
