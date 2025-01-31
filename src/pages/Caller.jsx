@@ -61,6 +61,7 @@ const CallerPage = () => {
     if (!stream) return;
 
     peerConnection.current = new RTCPeerConnection(iceServers);
+    console.log("Testing", peerConnection.current.ontrack);
 
     peerConnection.current.ontrack = (event) => {
       if (userVideo.current) {
@@ -76,7 +77,6 @@ const CallerPage = () => {
         });
       }
     };
-
     stream.getTracks().forEach((track) => {
       peerConnection.current.addTrack(track, stream);
     });
