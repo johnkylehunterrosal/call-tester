@@ -91,6 +91,7 @@ const CallerPage = () => {
     if (!stream) return;
 
     peerConnection.current = new RTCPeerConnection(iceServers);
+    console.log("Testing", peerConnection.current.ontrack);
 
     // Handle incoming tracks from the remote peer
     peerConnection.current.ontrack = (event) => {
@@ -108,8 +109,8 @@ const CallerPage = () => {
         });
       }
     };
-
     // Add local stream tracks to the peer connection
+
     stream.getTracks().forEach((track) => {
       peerConnection.current.addTrack(track, stream);
     });
