@@ -3,8 +3,8 @@ import io from "socket.io-client";
 
 // Function to dynamically connect to the server with fallback
 const connectToSocketServer = () => {
-  const primaryServer = "http://localhost:5000";
-  const fallbackServer = "http://192.168.68.62:5000";
+  const primaryServer = "https://echat.taguig.gov.ph";
+  const fallbackServer = "https://echat.taguig.gov.ph";
 
   try {
     const socket = io(primaryServer, { timeout: 5000 });
